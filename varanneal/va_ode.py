@@ -534,7 +534,8 @@ class Annealer(ADmin):
         """
         Initialize the annealing procedure.
         """
-        if method not in ('L-BFGS-B', 'NCG', 'LM', 'TNC'):
+        #Added IPOPT
+        if method not in ('L-BFGS-B', 'NCG', 'LM', 'TNC','IPOPT'):
             print("ERROR: Optimization routine not recognized. Annealing not initialized.")
             return None
         else:
@@ -737,6 +738,9 @@ class Annealer(ADmin):
                 XPmin, Amin, exitflag = self.min_cg_scipy(XP0, self.gen_xtrace())
             elif self.method == 'TNC':
                 XPmin, Amin, exitflag = self.min_tnc_scipy(XP0, self.gen_xtrace())
+            #Added min_ipopt
+            elif self.method == 'IPOPT':
+                XPmin, Amin, exitstatus = self.min_ipopt(XP0, bounds, self.gen_xtrace())
             #elif self.method == 'LM':
             #    XPmin, Amin, exitflag = self.min_lm_scipy(XP0)
             else:

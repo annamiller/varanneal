@@ -10,6 +10,7 @@ variational annealing.
 
 import numpy as np
 import adolc
+import pyipopt
 import scipy.optimize as opt
 import time
 
@@ -35,7 +36,10 @@ class ADmin(object):
         """
         print('Taping action evaluation...')
         tstart = time.time()
-
+        
+        """
+        trace objective function
+        """
         adolc.trace_on(self.adolcID)
         # set the active independent variables
         ax = adolc.adouble(xtrace)
@@ -44,14 +48,82 @@ class ADmin(object):
         af = self.A(ax)
         adolc.dependent(af)
         adolc.trace_off()
+
+
+        #IPOPT needs the lagrangian functions to be traced
+        if self.method == 'IPOPT':
+            """
+            trace lagrangian unconstrained
+            """
+            #This adolc numbering could cause problems in the future
+            adolc.trace_on(self.adolcID + 1000)
+            ax = adolc.adouble(xtrace)
+            aobj_factor = adolc.adouble(1.)
+            adolc.independent(ax)
+            adolc.independent(aobj_factor)
+            ay = eval_lagrangian(ax,aobj_factor)
+            adolc.trace_off()
+               
+            
         self.taped = True
         print('Done!')
         print('Time = {0} s\n'.format(time.time()-tstart))
 
-    def A_taped(self, XP):
+
+    """
+    IPOPT Function for unconstrained optimization
+    """
+    def eval_jac_g(x, flag, user_data=None):
+        rows = numpy.array([], dtype=int)
+        cols = numpy.array([], dtype=int)
+        if flag:
+            return (rows, cols)
+        else:
+            raise Exception('this should not be called for unconstrained optimization')
+
+    """
+    Function added for IPOPT
+    Add extra input, lagrange and dot(lagrange,eval_g) for constrained optimizations
+    """
+    def eval_lagrangian(x,obj_factor,user_data = None):
+        return obj_factor*eval_f(x)
+
+    """
+    Creating this function for IPOPT. Assume Unconstrained.
+    """
+    def eval_g(x, user_data=None):
+        return np.array([],dtype=float)
+
+    """
+    Class for Hessian of Lagrangian
+    """
+    class Eval_h_adolc:
+    
+        def __init__(self, x):
+            options = numpy.array([0,0],dtype=int)
+            result = adolc.colpack.sparse_hess_no_repeat(self.adolcID+1000,x,options)
+        
+            self.rind = numpy.asarray(result[1],dtype=int)
+            self.cind = numpy.asarray(result[2],dtype=int)
+            self.values = numpy.asarray(result[3],dtype=float)
+            self.mask = numpy.where(self.cind < len(x))
+            self.nnz = len(numpy.asarray(self.mask).flatten())
+
+        
+        def __call__(self, x, lagrange, obj_factor, flag, user_data = None):
+
+            if flag:
+                return (self.rind[self.mask], self.cind[self.mask])
+            else:
+                x = numpy.hstack([x,lagrange,obj_factor])
+                result = adolc.colpack.sparse_hess_repeat(self.adolcID+1000, x, self.rind, self.cind, self.values)
+                return result[3][self.mask]
+
+    #user_data=None added for IPOPT, needed?
+    def A_taped(self, XP, user_data=None):
         return adolc.function(self.adolcID, XP)
     
-    def gradA_taped(self, XP):
+    def gradA_taped(self, XP,user_data=None):
         return adolc.gradient(self.adolcID, XP)
 
     def A_gradA_taped(self, XP):
@@ -63,6 +135,7 @@ class ADmin(object):
     def A_jacaA_taped(self, XP):
         return adolc.function(self.adolcID, XP), adolc.jacobian(self.adolcID, XP)
 
+    #This calculation will likely lead to memory errors
     def hessianA_taped(self, XP):
         return adolc.hessian(self.adolcID, XP)
 
@@ -165,6 +238,42 @@ class ADmin(object):
         print("Exit message: {0}".format(res.message))
         print("Iterations = {0}".format(res.nit))
         print("Obj. function value = {0}\n".format(Amin))
+        return XPmin, Amin, status
+
+    #Other inputs TBD
+    def min_ipopt(self, XP0, bounds, xtrace=None):
+        """
+        Minimize f starting from XP0 using IPOPT.
+        Returns the minimizing state, the minimum function value, and the
+        termination information.
+        """
+        if self.taped == False:
+            self.tape_A(xtrace)
+
+        #Is this time consuming - creates a new instance of the class at each call
+        #Need to move outside this function
+        eval_h_adolc = Eval_h_adolc(XP0)
+        nnzj = 0
+        nnzh = eval_h_adolc.nnz
+        #Includes NPest
+        nvar = len(XP0)
+
+        #Use bounds - Includes parameters. Does this work for time dependent parameters?
+        x_L = np.asarray(bounds)[:,0]
+        x_U = np.asarray(bounds)[:,1]
+     
+        ncon = 0
+        g_L = np.array([])
+        g_U = np.array([])
+
+
+        nlp_adolc = pyipopt.create(nvar,x_L,x_U, ncon, g_L, g_U, nnzj, nnzh, A_taped, gradA_taped, eval_g, eval_jac_g, eval_h_adolc)
+
+        nlp_adolc.num_option('tol',1e-6)
+        
+        
+        XPmin, _, _, _, Amin, status = nlp_adolc.solve(XP0)
+        nlp_adolc.close()
         return XPmin, Amin, status
 
     #def min_lm_scipy(self, XP0):
