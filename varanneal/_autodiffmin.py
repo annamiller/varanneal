@@ -25,6 +25,7 @@ class ADmin(object):
         are set in the Annealer objects which inherit ADmin, so nothing special
         to do here really.
         """
+        self.lagrangeID = 0
         pass
 
     ############################################################################
@@ -56,12 +57,13 @@ class ADmin(object):
             trace lagrangian unconstrained
             """
             #This adolc numbering could cause problems in the future
-            adolc.trace_on(self.adolcID + 1000)
+            self.lagrangeID = self.adolcID + 1000
+            adolc.trace_on(self.lagrangeID)
             ax = adolc.adouble(xtrace)
             aobj_factor = adolc.adouble(1.)
             adolc.independent(ax)
             adolc.independent(aobj_factor)
-            ay = eval_lagrangian(ax,aobj_factor)
+            ay = self.eval_lagrangian(ax,aobj_factor)
             adolc.trace_off()
                
             
@@ -73,7 +75,7 @@ class ADmin(object):
     """
     IPOPT Function for unconstrained optimization
     """
-    def eval_jac_g(x, flag, user_data=None):
+    def eval_jac_g(self, x, flag, user_data=None):
         rows = numpy.array([], dtype=int)
         cols = numpy.array([], dtype=int)
         if flag:
@@ -85,23 +87,23 @@ class ADmin(object):
     Function added for IPOPT
     Add extra input, lagrange and dot(lagrange,eval_g) for constrained optimizations
     """
-    def eval_lagrangian(x,obj_factor,user_data = None):
-        return obj_factor*eval_f(x)
+    def eval_lagrangian(self, x,obj_factor,user_data = None):
+        return obj_factor*self.A(x)
 
     """
     Creating this function for IPOPT. Assume Unconstrained.
     """
-    def eval_g(x, user_data=None):
+    def eval_g(self, x, user_data=None):
         return np.array([],dtype=float)
 
     """
-    Class for Hessian of Lagrangian
+    Class for Hessian of Lagrangian - This is bad practice and I should figure out a better way...
     """
     class Eval_h_adolc:
     
         def __init__(self, x):
-            options = numpy.array([0,0],dtype=int)
-            result = adolc.colpack.sparse_hess_no_repeat(self.adolcID+1000,x,options)
+            options = np.array([0,0],dtype=int)
+            result = adolc.colpack.sparse_hess_no_repeat(ADmin.lagrangeID,x,options)
         
             self.rind = numpy.asarray(result[1],dtype=int)
             self.cind = numpy.asarray(result[2],dtype=int)
@@ -116,7 +118,7 @@ class ADmin(object):
                 return (self.rind[self.mask], self.cind[self.mask])
             else:
                 x = numpy.hstack([x,lagrange,obj_factor])
-                result = adolc.colpack.sparse_hess_repeat(self.adolcID+1000, x, self.rind, self.cind, self.values)
+                result = adolc.colpack.sparse_hess_repeat(ADmin.lagrangeID, x, self.rind, self.cind, self.values)
                 return result[3][self.mask]
 
     #user_data=None added for IPOPT, needed?
@@ -241,7 +243,7 @@ class ADmin(object):
         return XPmin, Amin, status
 
     #Other inputs TBD
-    def min_ipopt(self, XP0, bounds, xtrace=None):
+    def min_ipopt(self, XP0, xtrace=None):
         """
         Minimize f starting from XP0 using IPOPT.
         Returns the minimizing state, the minimum function value, and the
@@ -252,19 +254,20 @@ class ADmin(object):
 
         #Is this time consuming - creates a new instance of the class at each call
         #Need to move outside this function
-        eval_h_adolc = Eval_h_adolc(XP0)
-        nnzj = 0
+        #Or figure out how to do this WITH a function instead of a class
+        eval_h_adolc = self.Eval_h_adolc(XP0)
         nnzh = eval_h_adolc.nnz
         #Includes NPest
         nvar = len(XP0)
 
         #Use bounds - Includes parameters. Does this work for time dependent parameters?
-        x_L = np.asarray(bounds)[:,0]
-        x_U = np.asarray(bounds)[:,1]
+        x_L = np.asarray(self.bounds)[:,0]
+        x_U = np.asarray(self.bounds)[:,1]
      
         ncon = 0
         g_L = np.array([])
         g_U = np.array([])
+        nnzj = 0
 
 
         nlp_adolc = pyipopt.create(nvar,x_L,x_U, ncon, g_L, g_U, nnzj, nnzh, A_taped, gradA_taped, eval_g, eval_jac_g, eval_h_adolc)
@@ -298,7 +301,10 @@ class ADmin(object):
         tstart = time.time()
 
         XPmin, _, _, _, Amin, status = nlp_adolc.solve(XP0)
+
+        #deleting objects
         nlp_adolc.close()
+        del eval_h_adolc
 
         print("Optimization complete!")
         print("Time = {0} s".format(time.time()-tstart))

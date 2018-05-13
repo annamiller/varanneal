@@ -712,7 +712,7 @@ class Annealer(ADmin):
         step). Then, RF is increased to prepare for the next annealing step.
         """
         # minimize A using the chosen method
-        if self.method in ['L-BFGS-B', 'NCG', 'TNC', 'LM']:
+        if self.method in ['L-BFGS-B', 'NCG', 'TNC', 'LM','IPOPT']:
             if self.betaidx == 0:
                 if self.NPest == 0:
                     XP0 = np.copy(self.minpaths[0][:self.N_model*self.D])
@@ -740,7 +740,7 @@ class Annealer(ADmin):
                 XPmin, Amin, exitflag = self.min_tnc_scipy(XP0, self.gen_xtrace())
             #Added min_ipopt
             elif self.method == 'IPOPT':
-                XPmin, Amin, exitstatus = self.min_ipopt(XP0, bounds, self.gen_xtrace())
+                XPmin, Amin, exitstatus = self.min_ipopt(XP0, self.gen_xtrace())
             #elif self.method == 'LM':
             #    XPmin, Amin, exitflag = self.min_lm_scipy(XP0)
             else:
