@@ -269,11 +269,44 @@ class ADmin(object):
 
         nlp_adolc = pyipopt.create(nvar,x_L,x_U, ncon, g_L, g_U, nnzj, nnzh, A_taped, gradA_taped, eval_g, eval_jac_g, eval_h_adolc)
 
+        #Setting default settings to match minAone with adjustments        
         nlp_adolc.num_option('tol',1e-6)
+        nlp_adolc.str_option('mu_strategy','adaptive')
+        nlp_adolc.str_option('adaptive_mu_globalization','never-monotone-mode')
+        nlp_adolc.int_option('max_iter',1000)
+        nlp_adolc.str_option('linear_solver','ma97')
+        nlp_adolc.num_option('bound_relax_factor',0)
+
+
+        #IPOPT distinguishes between num, int, and str options
+        #Only supports 3 options atm, could for loop through values with if statements...
+        if self.opt_args is not None:
+            if 'max_iter' in boundz:
+                nlp_adolc.int_option('max_iter',boundz.get('max_iter'))
+
+            if 'tol' in boundz:
+                nlp_adolc.num_option('tol',boundz.get('tol'))
+
+            if 'linear_solver' in boundz:
+                nlp_adolc.str_option('linear_solver',boundz.get('linear_solver'))
+      
+
+
         
-        
+        # start the optimization
+        print("Beginning optimization...")
+        tstart = time.time()
+
         XPmin, _, _, _, Amin, status = nlp_adolc.solve(XP0)
         nlp_adolc.close()
+
+        print("Optimization complete!")
+        print("Time = {0} s".format(time.time()-tstart))
+        #print("Exit flag = {0}".format(status))
+        #print("Exit message: {0}".format(res.message))
+        #print("Iterations = {0}".format(res.nit))
+        print("Obj. function value = {0}\n".format(Amin))
+
         return XPmin, Amin, status
 
     #def min_lm_scipy(self, XP0):
